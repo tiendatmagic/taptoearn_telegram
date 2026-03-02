@@ -23,8 +23,9 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   private readonly clientIdStorageKey = 'taptoearn_client_id';
   private readonly flushDebounceMs = 800;
   private readonly flushIntervalMs = 3000;
-  private readonly stateRefreshIntervalMs = 4000;
-  private readonly immediateFlushThreshold = 20;
+  private readonly activeStateRefreshIntervalMs = 25000;
+  private readonly recentActivityWindowMs = 40000;
+  private readonly immediateFlushThreshold = 30;
   private readonly maxLocalPendingQueue = 200;
   private readonly maxBatchSize = 50;
 
@@ -47,15 +48,21 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
 
   private flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private flushIntervalId: ReturnType<typeof setInterval> | null = null;
-  private stateRefreshIntervalId: ReturnType<typeof setInterval> | null = null;
+  private stateRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private activeBatch: SyncBatch | null = null;
   private initData = '';
   private clientId = '';
   private activeUserId: string | null = null;
+  private lastTapActivityAtMs = 0;
   private readonly onVisibilityChange = (): void => {
     if (document.visibilityState === 'hidden') {
       void this.flushTaps();
+      this.stopStateRefreshPolling();
+      return;
     }
+
+    void this.refreshServerState(true);
+    this.scheduleStateRefreshPolling();
   };
 
   constructor(private readonly tapApi: TaptoearnApiService) { }
@@ -63,7 +70,7 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.clientId = this.resolveClientId();
     this.startFlushInterval();
-    this.startStateRefreshInterval();
+    this.scheduleStateRefreshPolling();
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     window.addEventListener('beforeunload', this.onBeforeUnload);
     void this.bootstrapPlayer();
@@ -72,7 +79,7 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.clearFlushTimer();
     this.stopFlushInterval();
-    this.stopStateRefreshInterval();
+    this.stopStateRefreshPolling();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
   }
@@ -90,6 +97,7 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
     this.pendingTaps.update((value) => value + 1);
     this.persistPendingTaps();
     this.lastTap.set(new Date());
+    this.lastTapActivityAtMs = Date.now();
     this.error.set(null);
 
     if (this.pendingTaps() >= this.immediateFlushThreshold) {
@@ -122,6 +130,7 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
       sessionStorage.setItem(this.initDataStorageKey, this.initData);
       this.applyPlayerState(response.player);
       this.switchActiveUser(response.player.telegram_user_id);
+      this.scheduleStateRefreshPolling();
     } catch (error) {
       this.error.set(this.resolveSyncError(error));
     } finally {
@@ -159,6 +168,7 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
       this.applyPlayerState(response.player);
       this.switchActiveUser(response.player.telegram_user_id);
       this.error.set(null);
+      this.scheduleStateRefreshPolling();
     } catch (error) {
       this.error.set(this.resolveSyncError(error));
     } finally {
@@ -371,21 +381,41 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
     }
   }
 
-  private startStateRefreshInterval(): void {
-    this.stateRefreshIntervalId = window.setInterval(() => {
+  private scheduleStateRefreshPolling(): void {
+    this.stopStateRefreshPolling();
+
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
+
+    const delayMs = this.computeNextStateRefreshDelay();
+    if (delayMs === null) {
+      return;
+    }
+
+    this.stateRefreshTimeoutId = window.setTimeout(() => {
       void this.refreshServerState();
-    }, this.stateRefreshIntervalMs);
+      this.scheduleStateRefreshPolling();
+    }, delayMs);
   }
 
-  private stopStateRefreshInterval(): void {
-    if (this.stateRefreshIntervalId !== null) {
-      clearInterval(this.stateRefreshIntervalId);
-      this.stateRefreshIntervalId = null;
+  private stopStateRefreshPolling(): void {
+    if (this.stateRefreshTimeoutId !== null) {
+      clearTimeout(this.stateRefreshTimeoutId);
+      this.stateRefreshTimeoutId = null;
     }
   }
 
-  private async refreshServerState(): Promise<void> {
-    if (this.requiresTelegram() || this.isBootstrapping() || this.isSyncing() || !this.initData) {
+  private async refreshServerState(force = false): Promise<void> {
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
+
+    if (this.requiresTelegram() || this.isBootstrapping() || !this.initData) {
+      return;
+    }
+
+    if (!force && this.isSyncing()) {
       return;
     }
 
@@ -401,6 +431,18 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
     } catch {
       // Silent refresh to keep UI smooth.
     }
+  }
+
+  private computeNextStateRefreshDelay(): number | null {
+    if (this.pendingTaps() > 0 || this.inFlightTaps() > 0) {
+      return this.activeStateRefreshIntervalMs;
+    }
+
+    const hasRecentActivity =
+      this.lastTapActivityAtMs > 0 &&
+      Date.now() - this.lastTapActivityAtMs <= this.recentActivityWindowMs;
+
+    return hasRecentActivity ? this.activeStateRefreshIntervalMs : null;
   }
 
   private readPendingTaps(userId: string): number {
