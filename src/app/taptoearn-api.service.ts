@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
+import { resolveApiBaseUrl } from './app-env';
 
 export interface PlayerState {
   id: number;
@@ -36,7 +37,7 @@ export interface TapResponse {
 
 @Injectable({ providedIn: 'root' })
 export class TaptoearnApiService {
-  private readonly baseUrl = 'http://127.0.0.1:8000/api/v1';
+  private readonly baseUrl = `${resolveApiBaseUrl()}/api/v1`;
 
   constructor(private readonly http: HttpClient) {}
 
