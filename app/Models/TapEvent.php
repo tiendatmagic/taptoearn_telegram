@@ -13,6 +13,7 @@ class TapEvent extends Model
         'coins_earned',
         'source',
         'client_nonce',
+        'client_id',
         'client_seq',
         'meta',
     ];

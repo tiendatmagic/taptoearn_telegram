@@ -73,6 +73,7 @@ class TapGameController extends Controller
             'init_data' => ['required', 'string'],
             'tap_count' => ['sometimes', 'integer', 'min:1', 'max:'.$maxTaps],
             'source' => ['sometimes', 'string', 'max:32'],
+            'client_id' => ['required', 'string', 'max:64'],
             'client_nonce' => ['required', 'string', 'max:64'],
             'client_seq' => ['required', 'integer', 'min:1'],
             'meta' => ['sometimes', 'array'],
@@ -110,6 +111,7 @@ class TapGameController extends Controller
 
             $eventBySeq = TapEvent::query()
                 ->where('player_id', $player->id)
+                ->where('client_id', $data['client_id'])
                 ->where('client_seq', $clientSeq)
                 ->first();
 
@@ -136,6 +138,7 @@ class TapGameController extends Controller
                 'coins_earned' => $coinsEarned,
                 'source' => $data['source'] ?? 'app',
                 'client_nonce' => $data['client_nonce'],
+                'client_id' => $data['client_id'],
                 'client_seq' => $clientSeq,
                 'meta' => $data['meta'] ?? null,
             ]);
