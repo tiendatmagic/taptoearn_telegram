@@ -38,6 +38,9 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   protected readonly error = signal<string | null>(null);
   protected readonly requiresTelegram = signal(false);
   protected readonly telegramBotUrl = appEnv.telegramBotUrl;
+  protected readonly telegramQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
+    appEnv.telegramBotUrl,
+  )}`;
 
   private flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private flushIntervalId: ReturnType<typeof setInterval> | null = null;
