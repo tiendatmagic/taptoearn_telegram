@@ -19,6 +19,7 @@ type SyncBatch = {
 export class TapToEarnGameComponent implements OnInit, OnDestroy {
   private readonly pendingStorageKey = 'taptoearn_pending_taps';
   private readonly nextSeqStorageKey = 'taptoearn_next_client_seq';
+  private readonly initDataStorageKey = 'taptoearn_init_data_cache';
   private readonly flushDebounceMs = 800;
   private readonly flushIntervalMs = 3000;
   private readonly immediateFlushThreshold = 20;
@@ -111,10 +112,11 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
         }),
       );
 
+      sessionStorage.setItem(this.initDataStorageKey, this.initData);
       this.applyPlayerState(response.player);
       this.switchActiveUser(response.player.telegram_user_id);
-    } catch {
-      this.error.set('Cannot sync player. Open from Telegram or check server config.');
+    } catch (error) {
+      this.error.set(this.resolveSyncError(error));
     } finally {
       this.isBootstrapping.set(false);
     }
@@ -188,16 +190,25 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   }
 
   private resolveInitData(): string {
-    const telegram = (window as { Telegram?: { WebApp?: { initData?: string } } }).Telegram;
-    const telegramInitData = telegram?.WebApp?.initData?.trim();
+    const telegram = (
+      window as { Telegram?: { WebApp?: { initData?: string; ready?: () => void } } }
+    ).Telegram;
+    telegram?.WebApp?.ready?.();
+    const telegramInitData = telegram?.WebApp?.initData?.trim() ?? '';
 
-    if (telegramInitData) {
+    if (this.isLikelyTelegramInitData(telegramInitData)) {
       this.requiresTelegram.set(false);
       return telegramInitData;
     }
 
+    const cachedInitData = sessionStorage.getItem(this.initDataStorageKey)?.trim() ?? '';
+    if (this.isLikelyTelegramInitData(cachedInitData)) {
+      this.requiresTelegram.set(false);
+      return cachedInitData;
+    }
+
     const fromUrl = this.resolveInitDataFromUrl();
-    if (fromUrl) {
+    if (this.isLikelyTelegramInitData(fromUrl)) {
       this.requiresTelegram.set(false);
       return fromUrl;
     }
@@ -213,12 +224,48 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   private resolveInitDataFromUrl(): string {
     const searchParams = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const rawHash = window.location.hash.replace(/^#/, '').trim();
+    const candidates = [
+      searchParams.get('tgWebAppData')?.trim() ?? '',
+      hashParams.get('tgWebAppData')?.trim() ?? '',
+      rawHash,
+    ];
 
-    return (
-      searchParams.get('tgWebAppData')?.trim() ||
-      hashParams.get('tgWebAppData')?.trim() ||
-      ''
-    );
+    for (const candidate of candidates) {
+      if (!candidate) {
+        continue;
+      }
+
+      const normalized = this.normalizeInitDataCandidate(candidate);
+      if (this.isLikelyTelegramInitData(normalized)) {
+        return normalized;
+      }
+    }
+
+    return '';
+  }
+
+  private normalizeInitDataCandidate(raw: string): string {
+    let value = raw.trim();
+
+    if (value.startsWith('tgWebAppData=')) {
+      value = value.slice('tgWebAppData='.length);
+    }
+
+    try {
+      const decoded = decodeURIComponent(value);
+      if (decoded.includes('hash=') && decoded.includes('auth_date=')) {
+        value = decoded;
+      }
+    } catch {
+      // Keep original value if decode fails.
+    }
+
+    return value;
+  }
+
+  private isLikelyTelegramInitData(value: string): boolean {
+    return value.includes('hash=') && value.includes('auth_date=');
   }
 
   private resolveLocalDemoUserId(): string {
