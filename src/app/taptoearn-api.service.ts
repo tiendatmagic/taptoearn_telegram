@@ -26,12 +26,21 @@ export interface TapPayload {
   init_data: string;
   tap_count?: number;
   source?: string;
+  client_id: string;
   client_nonce: string;
   client_seq: number;
 }
 
 export interface TapResponse {
   coins_earned: number;
+  player: PlayerState;
+}
+
+export interface PlayerStatePayload {
+  init_data: string;
+}
+
+export interface PlayerStateResponse {
   player: PlayerState;
 }
 
@@ -47,5 +56,9 @@ export class TaptoearnApiService {
 
   tap(payload: TapPayload): Observable<TapResponse> {
     return this.http.post<TapResponse>(`${this.baseUrl}/tap`, payload);
+  }
+
+  state(payload: PlayerStatePayload): Observable<PlayerStateResponse> {
+    return this.http.post<PlayerStateResponse>(`${this.baseUrl}/players/state`, payload);
   }
 }

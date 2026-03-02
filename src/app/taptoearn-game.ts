@@ -20,8 +20,10 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   private readonly pendingStorageKey = 'taptoearn_pending_taps';
   private readonly nextSeqStorageKey = 'taptoearn_next_client_seq';
   private readonly initDataStorageKey = 'taptoearn_init_data_cache';
+  private readonly clientIdStorageKey = 'taptoearn_client_id';
   private readonly flushDebounceMs = 800;
   private readonly flushIntervalMs = 3000;
+  private readonly stateRefreshIntervalMs = 4000;
   private readonly immediateFlushThreshold = 20;
   private readonly maxLocalPendingQueue = 200;
   private readonly maxBatchSize = 50;
@@ -45,8 +47,10 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
 
   private flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private flushIntervalId: ReturnType<typeof setInterval> | null = null;
+  private stateRefreshIntervalId: ReturnType<typeof setInterval> | null = null;
   private activeBatch: SyncBatch | null = null;
   private initData = '';
+  private clientId = '';
   private activeUserId: string | null = null;
   private readonly onVisibilityChange = (): void => {
     if (document.visibilityState === 'hidden') {
@@ -57,7 +61,9 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   constructor(private readonly tapApi: TaptoearnApiService) { }
 
   ngOnInit(): void {
+    this.clientId = this.resolveClientId();
     this.startFlushInterval();
+    this.startStateRefreshInterval();
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     window.addEventListener('beforeunload', this.onBeforeUnload);
     void this.bootstrapPlayer();
@@ -66,6 +72,7 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.clearFlushTimer();
     this.stopFlushInterval();
+    this.stopStateRefreshInterval();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
   }
@@ -140,6 +147,7 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
           init_data: this.initData,
           tap_count: batch.tapCount,
           source: 'web-app',
+          client_id: this.clientId,
           client_nonce: batch.clientNonce,
           client_seq: batch.clientSeq,
         }),
@@ -278,6 +286,18 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
     return resolved;
   }
 
+  private resolveClientId(): string {
+    const existing = localStorage.getItem(this.clientIdStorageKey)?.trim();
+    if (existing) {
+      return existing;
+    }
+
+    const generated = `client_${Math.random().toString(36).slice(2, 12)}_${Date.now()}`;
+    localStorage.setItem(this.clientIdStorageKey, generated);
+
+    return generated;
+  }
+
   private switchActiveUser(telegramUserId: string): void {
     if (this.activeUserId === telegramUserId) {
       this.telegramUserId.set(telegramUserId);
@@ -348,6 +368,38 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
     if (this.flushIntervalId !== null) {
       clearInterval(this.flushIntervalId);
       this.flushIntervalId = null;
+    }
+  }
+
+  private startStateRefreshInterval(): void {
+    this.stateRefreshIntervalId = window.setInterval(() => {
+      void this.refreshServerState();
+    }, this.stateRefreshIntervalMs);
+  }
+
+  private stopStateRefreshInterval(): void {
+    if (this.stateRefreshIntervalId !== null) {
+      clearInterval(this.stateRefreshIntervalId);
+      this.stateRefreshIntervalId = null;
+    }
+  }
+
+  private async refreshServerState(): Promise<void> {
+    if (this.requiresTelegram() || this.isBootstrapping() || this.isSyncing() || !this.initData) {
+      return;
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.tapApi.state({
+          init_data: this.initData,
+        }),
+      );
+
+      this.applyPlayerState(response.player);
+      this.switchActiveUser(response.player.telegram_user_id);
+    } catch {
+      // Silent refresh to keep UI smooth.
     }
   }
 
