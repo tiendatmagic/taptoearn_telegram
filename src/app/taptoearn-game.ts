@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnDestroy, OnInit, computed, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { appEnv } from './app-env';
 import { PlayerState, TaptoearnApiService } from './taptoearn-api.service';
 
 type SyncBatch = {
@@ -35,6 +36,8 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
   protected readonly isBootstrapping = signal(false);
   protected readonly isSyncing = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly requiresTelegram = signal(false);
+  protected readonly telegramBotUrl = appEnv.telegramBotUrl;
 
   private flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private flushIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -90,6 +93,13 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
     this.isBootstrapping.set(true);
     this.error.set(null);
     this.initData = this.resolveInitData();
+
+    if (!this.initData) {
+      this.requiresTelegram.set(true);
+      this.error.set('Please open this game from Telegram Mini App.');
+      this.isBootstrapping.set(false);
+      return;
+    }
 
     try {
       const response = await firstValueFrom(
@@ -179,7 +189,12 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
     const telegramInitData = telegram?.WebApp?.initData?.trim();
 
     if (telegramInitData) {
+      this.requiresTelegram.set(false);
       return telegramInitData;
+    }
+
+    if (appEnv.isProduction) {
+      return '';
     }
 
     const demoUserId = this.resolveLocalDemoUserId();

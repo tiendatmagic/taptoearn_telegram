@@ -11,13 +11,26 @@
     <div
       class="bg-white/90 rounded-2xl border-pink-50 backdrop-blur-sm flex flex-col items-center gap-3 px-6 py-5 mb-6 border shadow-md"
     >
+      @if (requiresTelegram()) {
+        <div
+          class="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800"
+        >
+          This game is available only inside Telegram Mini App.
+          <a
+            class="ml-1 underline decoration-2 underline-offset-2"
+            [href]="telegramBotUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open in Telegram
+          </a>
+        </div>
+      }
       <div class="text-xs text-gray-500">Telegram User ID: {{ telegramUserId() }}</div>
       <div class="text-lg font-semibold text-gray-700">
         Score: <span class="text-pink-600">{{ score() }}</span>
       </div>
-      @if (lastTap()) {
-        <div class="text-xs text-gray-400">Last tap: {{ lastTap()?.toLocaleTimeString() }}</div>
-      }
+
       @if (error()) {
         <div class="text-xs text-red-600">{{ error() }}</div>
       }
@@ -26,7 +39,7 @@
     <button
       class="md:px-16 md:py-10 bg-gradient-to-br from-yellow-400 via-pink-500 to-fuchsia-600 hover:from-yellow-300 hover:to-fuchsia-700 md:shadow-2xl md:text-4xl focus:outline-none focus:ring-4 active:scale-95 hover:scale-105 md:gap-4 md:border-4 border-white/60 relative flex items-center justify-center w-full gap-3 px-8 py-6 mb-4 text-2xl font-extrabold text-white transition-transform duration-150 border-2 rounded-full shadow-lg"
       (click)="tap()"
-      [disabled]="isBootstrapping()"
+      [disabled]="isBootstrapping() || requiresTelegram()"
       aria-label="Tap to earn"
     >
       <span>TAP!</span>
