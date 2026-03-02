@@ -193,12 +193,29 @@ export class TapToEarnGameComponent implements OnInit, OnDestroy {
       return telegramInitData;
     }
 
+    const fromUrl = this.resolveInitDataFromUrl();
+    if (fromUrl) {
+      this.requiresTelegram.set(false);
+      return fromUrl;
+    }
+
     if (appEnv.isProduction) {
       return '';
     }
 
     const demoUserId = this.resolveLocalDemoUserId();
     return `debug:${demoUserId}`;
+  }
+
+  private resolveInitDataFromUrl(): string {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+    return (
+      searchParams.get('tgWebAppData')?.trim() ||
+      hashParams.get('tgWebAppData')?.trim() ||
+      ''
+    );
   }
 
   private resolveLocalDemoUserId(): string {
